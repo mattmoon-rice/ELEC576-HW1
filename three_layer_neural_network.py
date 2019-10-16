@@ -2,6 +2,7 @@ __author__ = 'matt_moon'
 import numpy as np
 from sklearn import datasets, linear_model
 import matplotlib.pyplot as plt
+from scipy.special import softmax
 
 def generate_data():
     '''
@@ -77,9 +78,9 @@ class NeuralNetwork(object):
         if type == 'Tanh':
             return np.tanh(z)
         elif type == 'Sigmoid':
-            return 1/(1 + np.exp(-z))
+            return 1./(1. + np.exp(-z))
         elif type == 'ReLU':
-            return np.max(0, z)
+            return np.maximum(np.zeros(z.shape), z)
 
         return None
 
@@ -92,11 +93,11 @@ class NeuralNetwork(object):
         '''
 
         if type == 'Tanh':
-            return 1 - np.tanh(z)**2
+            return 1 - np.square(np.tanh(z))
         elif type == 'Sigmoid':
             return self.actFun(z, type)*(1-self.actFun(z, type))
         elif type == 'ReLU':
-            return 1 if z > 0 else 0
+            return (1+np.sign(z))/2
 
         return None
 
@@ -111,10 +112,10 @@ class NeuralNetwork(object):
 
         # YOU IMPLEMENT YOUR feedforward HERE
 
-        # self.z1 =
-        # self.a1 =
-        # self.z2 =
-        # self.probs =
+        self.z1 = np.dot(X, self.W1) + self.b1
+        self.a1 = actFun(self.z1)
+        self.z2 = np.dot(self.a1, self.W2) + self.b2
+        self.probs = softmax(self.z2, axis=1)
         return None
 
     def calculate_loss(self, X, y):
@@ -130,7 +131,7 @@ class NeuralNetwork(object):
 
         # YOU IMPLEMENT YOUR CALCULATION OF THE LOSS HERE
 
-        # data_loss =
+        data_loss = -sum(np.log(self.probs[np.indices(y.shape)[0], y]))
 
         # Add regulatization term to loss (optional)
         data_loss += self.reg_lambda / 2 * (np.sum(np.square(self.W1)) + np.sum(np.square(self.W2)))
@@ -159,6 +160,18 @@ class NeuralNetwork(object):
         # db2 = dL/db2
         # dW1 = dL/dW1
         # db1 = dL/db1
+        N = len(X)
+
+        one_hot = np.zeros((N, self.nn_output_dim))
+        one_hot[np.indices(y.shape)[0], y] = 1
+        Gamma2 = self.probs - one_hot
+        dW2 = (1. / N) * np.dot(self.a1.T, Gamma2)
+        db2 = (1. / N) * np.sum(Gamma2, axis=0)
+
+        Gamma1 = np.dot(Gamma2, self.W2.T) * self.diff_actFun(self.z1, self.actFun_type)
+        dW1 = (1. / N) * np.dot(X.T, Gamma1)
+        db1 = (1. / N) * np.sum(Gamma1, axis=0)
+
         return dW1, dW2, db1, db2
 
     def fit_model(self, X, y, epsilon=0.01, num_passes=20000, print_loss=True):
@@ -205,12 +218,16 @@ class NeuralNetwork(object):
 def main():
     # generate and visualize Make-Moons dataset
     X, y = generate_data()
-    plt.scatter(X[:, 0], X[:, 1], s=40, c=y, cmap=plt.cm.Spectral)
-    plt.show()
+    print(X)
+    print(y)
+    print(np.shape(X))
+    print(np.shape(y))
+    # plt.scatter(X[:, 0], X[:, 1], s=40, c=y, cmap=plt.cm.Spectral)
+    # plt.show()
 
-    # model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=3 , nn_output_dim=2, actFun_type='tanh')
-    # model.fit_model(X,y)
-    # model.visualize_decision_boundary(X,y)
+    model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=100 , nn_output_dim=2, actFun_type='ReLU')
+    model.fit_model(X,y)
+    model.visualize_decision_boundary(X,y)
 
 
 if __name__ == "__main__":
