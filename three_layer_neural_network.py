@@ -2,7 +2,7 @@ __author__ = 'matt_moon'
 import numpy as np
 from sklearn import datasets, linear_model
 import matplotlib.pyplot as plt
-from scipy.special import softmax
+from scipy.special import softmax, expit
 
 def generate_data():
     '''
@@ -75,11 +75,11 @@ class NeuralNetwork(object):
         :return: activations
         '''
 
-        if type == 'Tanh':
+        if type.lower() == 'tanh':
             return np.tanh(z)
-        elif type == 'Sigmoid':
-            return 1./(1. + np.exp(-z))
-        elif type == 'ReLU':
+        elif type.lower() == 'sigmoid':
+            return expit(z)
+        elif type.lower() == 'relu':
             return np.maximum(np.zeros(z.shape), z)
 
         return None
@@ -92,11 +92,11 @@ class NeuralNetwork(object):
         :return: the derivatives of the activation functions wrt the net input
         '''
 
-        if type == 'Tanh':
+        if type.lower() == 'tanh':
             return 1 - np.square(np.tanh(z))
-        elif type == 'Sigmoid':
-            return self.actFun(z, type)*(1-self.actFun(z, type))
-        elif type == 'ReLU':
+        elif type.lower() == 'sigmoid':
+            return expit(z)*(1-expit(z))
+        elif type.lower() == 'relu':
             return (1+np.sign(z))/2
 
         return None
@@ -215,19 +215,87 @@ class NeuralNetwork(object):
         plot_decision_boundary(lambda x: self.predict(x), X, y)
 
 
+class DeepNeuralNetwork(NeuralNetwork):
+    def __init__(self, nn_input_dim, nn_hidden_dim , nn_output_dim, actFun_type='tanh', reg_lambda=0.01, seed=0, n_hidden=1):
+        NeuralNetwork.__init__(self, nn_input_dim, nn_hidden_dim , nn_output_dim, actFun_type, reg_lambda, seed)
+        self.layers = [Layer(nn_input_dim, nn_hidden_dim)] + [Layer(nn_hidden_dim, nn_hidden_dim) for i in range(n_hidden-1)] + [Layer(nn_hidden_dim, nn_output_dim)]
+
+    def feedforward(self, X, actFun):
+        layer_input = X
+        for i in range(len(self.layers)):
+            layer_input = self.layers[i].feedforward(layer_input, actFun)
+        self.probs = softmax(layer_input, axis=1)
+
+    def calculate_loss(self, X, y):
+        N = len(X)
+        self.feedforward(X, lambda x: self.actFun(x, type=self.actFun_type))
+        data_loss = -sum(np.log(self.probs[np.indices(y.shape)[0], y]))
+        for layer in self.layers:
+            data_loss += self.reg_lambda / 2 * np.sum(np.square(layer.W))
+        return data_loss/N
+
+    def backprop(self, X, y):
+        N = len(X)
+        one_hot = np.zeros((N, self.nn_output_dim))
+        one_hot[np.indices(y.shape)[0], y] = 1
+
+        layer = self.layers[-1]
+        layer.Gamma = self.probs - one_hot
+        layer.dW = (1. / N) * np.dot(layer.x.T, layer.Gamma)
+        layer.db = (1. / N) * np.sum(layer.Gamma, axis=0)
+
+        for i in range(len(self.layers)-2, -1, -1):
+            self.layers[i].backprop(self.layers[i+1], lambda q: self.diff_actFun(q, self.actFun_type))
+
+    def fit_model(self, X, y, epsilon=0.01, num_passes=20000, print_loss=True):
+        for i in range(num_passes):
+            self.feedforward(X, lambda x: self.actFun(x, type=self.actFun_type))
+            self.backprop(X, y)
+            for layer in self.layers:
+                layer.update(self.reg_lambda, epsilon)
+
+            if print_loss and i % 1000 == 0:
+                print("Loss after iteration %i: %f" % (i, self.calculate_loss(X, y)))
+
+
+class Layer(object):
+    def __init__(self, in_dim, out_dim):
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.W = np.random.randn(in_dim, out_dim)/np.sqrt(self.in_dim)
+        self.b = np.zeros((1, self.out_dim))
+
+    def feedforward(self, x, actFun):
+        self.N = len(x)
+        self.x = x
+        self.z = np.dot(x, self.W) + self.b
+        self.a = actFun(self.z)
+        return self.a
+
+    def backprop(self, next_layer, diff_actFun):
+        self.Gamma = np.dot(next_layer.Gamma, next_layer.W.T) * diff_actFun(self.z)
+        self.dW = (1. / self.N) * np.dot(self.x.T, self.Gamma)
+        self.db = (1. / self.N) * np.sum(self.Gamma, axis=0)
+
+    def update(self, reg_lambda, epsilon):
+        self.dW += reg_lambda * self.W
+        self.W += -epsilon * self.dW
+        self.b += -epsilon * self.db
+
+
 def main():
     # generate and visualize Make-Moons dataset
     X, y = generate_data()
-    print(X)
-    print(y)
-    print(np.shape(X))
-    print(np.shape(y))
     # plt.scatter(X[:, 0], X[:, 1], s=40, c=y, cmap=plt.cm.Spectral)
     # plt.show()
 
-    model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=100 , nn_output_dim=2, actFun_type='ReLU')
-    model.fit_model(X,y)
-    model.visualize_decision_boundary(X,y)
+    #model = NeuralNetwork(nn_input_dim=2, nn_hidden_dim=100 , nn_output_dim=2, actFun_type='ReLU')
+    #model.fit_model(X,y)
+    #model.visualize_decision_boundary(X,y)
+
+    deepmodel = DeepNeuralNetwork(nn_input_dim=2, nn_hidden_dim=10, nn_output_dim=2, actFun_type='relu', n_hidden=5)
+    deepmodel.fit_model(X,y)
+    deepmodel.visualize_decision_boundary(X,y)
 
 
 if __name__ == "__main__":
